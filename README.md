@@ -1,3 +1,5 @@
+![CI](https://github.com/BorealBadger/notes-api/actions/workflows/ci.yml/badge.svg)
+
 # Notes Service (FastAPI)
 
 A minimal, beginner-friendly REST API for managing notes using FastAPI and in-memory storage.
