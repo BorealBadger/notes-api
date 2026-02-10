@@ -147,6 +147,11 @@ async def request_validation_exception_handler(_: Request, exc: RequestValidatio
     return error_response(status_code=422, code="validation_error", message=message)
 
 
+@app.get("/health")
+def health_check() -> dict:
+    return {"status": "healthy", "notes_count": len(notes_store)}
+
+
 @app.post("/notes", response_model=Note, status_code=201)
 def post_note(payload: CreateNoteRequest) -> Note:
     return create_note(title=payload.title.strip(), content=payload.content)
@@ -191,7 +196,8 @@ def patch_note(note_id: int, payload: UpdateNoteRequest) -> Note:
             ).model_dump(),
         )
 
-    note = update_note(note_id=note_id, title=payload.title.strip() if payload.title is not None else None, content=payload.content)
+    title_to_update = payload.title.strip() if payload.title is not None else None
+    note = update_note(note_id=note_id, title=title_to_update, content=payload.content)
     if note is None:
         raise HTTPException(
             status_code=404,
