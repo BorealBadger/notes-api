@@ -4,8 +4,7 @@ from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, field_validator
-
+from pydantic import BaseModel, field_validator
 
 app = FastAPI(title="Notes Service", version="1.0.0")
 
@@ -64,13 +63,20 @@ next_id = 1
 
 
 def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def create_note(title: str, content: str = "") -> Note:
     global next_id
     now = utc_now_iso()
-    note = Note(id=next_id, title=title, content=content, created_at=now, updated_at=now)
+    note = Note(
+        id=next_id, title=title, content=content, created_at=now, updated_at=now
+    )
     notes_store[next_id] = note
     next_id += 1
     return note
@@ -92,7 +98,9 @@ def get_note_by_id(note_id: int) -> Optional[Note]:
     return notes_store.get(note_id)
 
 
-def update_note(note_id: int, title: Optional[str], content: Optional[str]) -> Optional[Note]:
+def update_note(
+    note_id: int, title: Optional[str], content: Optional[str]
+) -> Optional[Note]:
     note = notes_store.get(note_id)
     if note is None:
         return None
@@ -125,7 +133,11 @@ def delete_note(note_id: int) -> bool:
 def search_notes(query: str) -> List[Note]:
     q = query.lower()
     all_notes = [notes_store[note_id] for note_id in sorted(notes_store)]
-    return [note for note in all_notes if q in note.title.lower() or q in note.content.lower()]
+    return [
+        note
+        for note in all_notes
+        if q in note.title.lower() or q in note.content.lower()
+    ]
 
 
 def error_response(status_code: int, code: str, message: str) -> JSONResponse:
@@ -141,7 +153,9 @@ async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse
 
 
 @app.exception_handler(RequestValidationError)
-async def request_validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+async def request_validation_exception_handler(
+    _: Request, exc: RequestValidationError
+) -> JSONResponse:
     first_error = exc.errors()[0]
     message = first_error.get("msg", "Validation error")
     return error_response(status_code=422, code="validation_error", message=message)
@@ -172,7 +186,9 @@ def get_note(note_id: int) -> Note:
         raise HTTPException(
             status_code=404,
             detail=ErrorResponse(
-                error=ErrorDetail(code="note_not_found", message=f"Note with id={note_id} not found")
+                error=ErrorDetail(
+                    code="note_not_found", message=f"Note with id={note_id} not found"
+                )
             ).model_dump(),
         )
     return note
@@ -191,12 +207,18 @@ def patch_note(note_id: int, payload: UpdateNoteRequest) -> Note:
             ).model_dump(),
         )
 
-    note = update_note(note_id=note_id, title=payload.title.strip() if payload.title is not None else None, content=payload.content)
+    note = update_note(
+        note_id=note_id,
+        title=payload.title.strip() if payload.title is not None else None,
+        content=payload.content,
+    )
     if note is None:
         raise HTTPException(
             status_code=404,
             detail=ErrorResponse(
-                error=ErrorDetail(code="note_not_found", message=f"Note with id={note_id} not found")
+                error=ErrorDetail(
+                    code="note_not_found", message=f"Note with id={note_id} not found"
+                )
             ).model_dump(),
         )
     return note
@@ -209,7 +231,9 @@ def remove_note(note_id: int) -> None:
         raise HTTPException(
             status_code=404,
             detail=ErrorResponse(
-                error=ErrorDetail(code="note_not_found", message=f"Note with id={note_id} not found")
+                error=ErrorDetail(
+                    code="note_not_found", message=f"Note with id={note_id} not found"
+                )
             ).model_dump(),
         )
     return None
