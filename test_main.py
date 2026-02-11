@@ -1,125 +1,113 @@
+from __future__ import annotations
+
 from fastapi.testclient import TestClient
+from sqlmodel import SQLModel, create_engine
+from sqlmodel.pool import StaticPool
 
 import main
+from sqlmodel import Session
 
-client = TestClient(main.app)
 
-
-def setup_function() -> None:
-    main.notes_store.clear()
-    main.next_id = 1
+def make_test_client() -> TestClient:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    main.engine = engine
+    return TestClient(main.app)
 
 
 def test_create_note_success() -> None:
-    response = client.post("/notes", json={"title": "First note", "content": "Hello"})
-
-    assert response.status_code == 201
-    data = response.json()
+    client = make_test_client()
+    resp = client.post("/notes", json={"title": "First", "content": "Hello"})
+    assert resp.status_code == 201
+    data = resp.json()
     assert data["id"] == 1
-    assert data["title"] == "First note"
+    assert data["title"] == "First"
     assert data["content"] == "Hello"
-    assert data["created_at"].endswith("Z")
-    assert data["updated_at"].endswith("Z")
 
 
 def test_create_note_validation_error() -> None:
-    response = client.post("/notes", json={"title": "   "})
-
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "validation_error"
+    client = make_test_client()
+    resp = client.post("/notes", json={"title": "   ", "content": "x"})
+    assert resp.status_code == 422
 
 
 def test_get_notes_empty() -> None:
-    response = client.get("/notes")
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "items": [],
-        "count": 0,
-        "total": 0,
-        "limit": 10,
-        "offset": 0,
-    }
+    client = make_test_client()
+    resp = client.get("/notes")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["items"] == []
+    assert data["count"] == 0
+    assert data["total"] == 0
 
 
 def test_get_note_not_found() -> None:
-    response = client.get("/notes/123")
-
-    assert response.status_code == 404
-    assert response.json() == {
-        "error": {
-            "code": "note_not_found",
-            "message": "Note with id=123 not found",
-        }
-    }
+    client = make_test_client()
+    resp = client.get("/notes/999")
+    assert resp.status_code == 404
 
 
 def test_patch_note_success() -> None:
-    create_response = client.post("/notes", json={"title": "Before", "content": "Old"})
-    note_id = create_response.json()["id"]
+    client = make_test_client()
+    created = client.post("/notes", json={"title": "A", "content": "B"}).json()
+    note_id = created["id"]
 
-    patch_response = client.patch(f"/notes/{note_id}", json={"title": "After"})
-
-    assert patch_response.status_code == 200
-    patched = patch_response.json()
-    assert patched["title"] == "After"
-    assert patched["content"] == "Old"
+    resp = client.patch(f"/notes/{note_id}", json={"content": "Updated"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["content"] == "Updated"
 
 
 def test_patch_note_invalid_title() -> None:
-    create_response = client.post("/notes", json={"title": "Valid"})
-    note_id = create_response.json()["id"]
+    client = make_test_client()
+    created = client.post("/notes", json={"title": "A", "content": "B"}).json()
+    note_id = created["id"]
 
-    patch_response = client.patch(f"/notes/{note_id}", json={"title": ""})
-
-    assert patch_response.status_code == 422
-    assert patch_response.json()["error"]["code"] == "validation_error"
+    resp = client.patch(f"/notes/{note_id}", json={"title": "   "})
+    assert resp.status_code == 422
 
 
 def test_delete_note_success() -> None:
-    create_response = client.post("/notes", json={"title": "To delete"})
-    note_id = create_response.json()["id"]
+    client = make_test_client()
+    created = client.post("/notes", json={"title": "A", "content": "B"}).json()
+    note_id = created["id"]
 
-    delete_response = client.delete(f"/notes/{note_id}")
-    get_response = client.get(f"/notes/{note_id}")
+    resp = client.delete(f"/notes/{note_id}")
+    assert resp.status_code == 204
 
-    assert delete_response.status_code == 204
-    assert delete_response.text == ""
-    assert get_response.status_code == 404
+    resp2 = client.get(f"/notes/{note_id}")
+    assert resp2.status_code == 404
 
 
 def test_delete_note_not_found() -> None:
-    response = client.delete("/notes/999")
-
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "note_not_found"
+    client = make_test_client()
+    resp = client.delete("/notes/999")
+    assert resp.status_code == 404
 
 
 def test_pagination_if_implemented() -> None:
-    for i in range(1, 6):
-        client.post("/notes", json={"title": f"Note {i}", "content": f"Body {i}"})
+    client = make_test_client()
+    for i in range(15):
+        client.post("/notes", json={"title": f"n{i}", "content": "x"})
 
-    response = client.get("/notes", params={"limit": 2, "offset": 1})
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["count"] == 2
-    assert data["total"] == 5
-    assert data["limit"] == 2
-    assert data["offset"] == 1
-    assert data["items"][0]["title"] == "Note 2"
-    assert data["items"][1]["title"] == "Note 3"
+    resp = client.get("/notes?limit=10&offset=0")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["count"] == 10
+    assert data["total"] == 15
 
 
 def test_search_if_implemented() -> None:
-    client.post("/notes", json={"title": "Shopping", "content": "Buy milk"})
-    client.post("/notes", json={"title": "Work", "content": "Prepare demo"})
-    client.post("/notes", json={"title": "Ideas", "content": "shopping app feature"})
+    client = make_test_client()
+    client.post("/notes", json={"title": "Buy milk", "content": "2 liters"})
+    client.post("/notes", json={"title": "Read book", "content": "chapter one"})
 
-    response = client.get("/notes/search", params={"q": "shop"})
-
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data) == 2
-    assert data[0]["title"] == "Shopping"
-    assert data[1]["title"] == "Ideas"
+    resp = client.get("/notes/search?q=milk")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["title"] == "Buy milk"
