@@ -110,3 +110,9 @@ def test_search_if_implemented() -> None:
     data = resp.json()
     assert len(data) == 1
     assert data[0]["title"] == "Buy milk"
+
+def test_healthz() -> None:
+    client = make_test_client()
+    resp = client.get("/healthz")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}

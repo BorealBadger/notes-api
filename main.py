@@ -177,3 +177,8 @@ def delete_note(note_id: int) -> Response:
         session.delete(note)
         session.commit()
         return Response(status_code=204)
+
+@app.get("/healthz")
+def healthz() -> dict[str, str]:
+    return {"status": "ok"}
+
