@@ -116,3 +116,22 @@ def test_healthz() -> None:
     resp = client.get("/healthz")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
+
+def test_get_note_not_found_error_shape() -> None:
+    client = make_test_client()
+    resp = client.get("/notes/999")
+    assert resp.status_code == 404
+    body = resp.json()
+    assert "detail" in body
+    assert body["detail"]["error"]["code"] == "not_found"
+    assert body["detail"]["error"]["message"] == "Note not found"
+
+
+def test_delete_note_not_found_error_shape() -> None:
+    client = make_test_client()
+    resp = client.delete("/notes/999")
+    assert resp.status_code == 404
+    body = resp.json()
+    assert "detail" in body
+    assert body["detail"]["error"]["code"] == "not_found"
+    assert body["detail"]["error"]["message"] == "Note not found"
