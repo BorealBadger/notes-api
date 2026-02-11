@@ -5,7 +5,6 @@ from sqlmodel import SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
 import main
-from sqlmodel import Session
 
 
 def make_test_client() -> TestClient:
