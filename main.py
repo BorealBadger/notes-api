@@ -7,7 +7,28 @@ from fastapi import FastAPI, HTTPException, Query, Response
 from pydantic import BaseModel, field_validator
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
-app = FastAPI(title="Notes API", version="1.0.0")
+app = FastAPI(
+    title="Notes API",
+    version="1.1.0",
+    description="Simple notes service with SQLite persistence, search, and health checks.",
+    contact={"name": "BorealBadger"},
+    openapi_tags=[
+        {"name": "health", "description": "Service health endpoints"},
+        {"name": "notes", "description": "CRUD and search operations for notes"},
+    ],
+)
+
+
+def not_found_error(entity: str = "Note") -> HTTPException:
+    return HTTPException(
+        status_code=404,
+        detail={"error": {"code": "not_found", "message": f"{entity} not found"}},
+    )
+
+
+DATABASE_URL = "sqlite:///notes.db"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
 
 
 # ---------- Database ----------
@@ -136,10 +157,8 @@ def get_note(note_id: int) -> NoteResponse:
     with Session(engine) as session:
         note = session.get(Note, note_id)
         if not note:
-            raise HTTPException(
-                status_code=404,
-                detail={"error": {"code": "not_found", "message": "Note not found"}},
-            )
+            raise not_found_error("Note")
+
         return to_note_response(note)
 
 
@@ -148,10 +167,8 @@ def patch_note(note_id: int, payload: PatchNoteRequest) -> NoteResponse:
     with Session(engine) as session:
         note = session.get(Note, note_id)
         if not note:
-            raise HTTPException(
-                status_code=404,
-                detail={"error": {"code": "not_found", "message": "Note not found"}},
-            )
+           raise not_found_error("Note")
+
 
         if payload.title is not None:
             note.title = payload.title
@@ -170,10 +187,8 @@ def delete_note(note_id: int) -> Response:
     with Session(engine) as session:
         note = session.get(Note, note_id)
         if not note:
-            raise HTTPException(
-                status_code=404,
-                detail={"error": {"code": "not_found", "message": "Note not found"}},
-            )
+            raise not_found_error("Note")
+
         session.delete(note)
         session.commit()
         return Response(status_code=204)
