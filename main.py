@@ -46,7 +46,12 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
 
 def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 class Note(SQLModel, table=True):

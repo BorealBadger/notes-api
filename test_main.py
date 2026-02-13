@@ -98,6 +98,8 @@ def test_pagination_if_implemented() -> None:
     data = resp.json()
     assert data["count"] == 10
     assert data["total"] == 15
+    assert data["limit"] == 10
+    assert data["offset"] == 0
 
 
 def test_search_if_implemented() -> None:
@@ -111,11 +113,13 @@ def test_search_if_implemented() -> None:
     assert len(data) == 1
     assert data[0]["title"] == "Buy milk"
 
+
 def test_healthz() -> None:
     client = make_test_client()
     resp = client.get("/healthz")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
+
 
 def test_get_note_not_found_error_shape() -> None:
     client = make_test_client()
