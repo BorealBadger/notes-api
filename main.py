@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, Header, HTTPException, Query, Response
 from pydantic import BaseModel, field_validator
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
@@ -19,6 +19,13 @@ app = FastAPI(
     ],
 )
 
+API_KEY = os.getenv("NOTES_API_KEY", "dev-secret-key")  # change in production
+
+
+def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
 
 def not_found_error(entity: str = "Note") -> HTTPException:
     return HTTPException(
@@ -27,19 +34,18 @@ def not_found_error(entity: str = "Note") -> HTTPException:
     )
 
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///notes.db")
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-
-
-
-
 # ---------- Database ----------
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///notes.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
 
 def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 class Note(SQLModel, table=True):
@@ -114,7 +120,12 @@ def to_note_response(note: Note) -> NoteResponse:
 @app.post("/notes", response_model=NoteResponse, status_code=201)
 def create_note(payload: CreateNoteRequest) -> NoteResponse:
     now = utc_now_iso()
-    note = Note(title=payload.title, content=payload.content, created_at=now, updated_at=now)
+    note = Note(
+        title=payload.title,
+        content=payload.content,
+        created_at=now,
+        updated_at=now,
+    )
     with Session(engine) as session:
         session.add(note)
         session.commit()
@@ -160,7 +171,6 @@ def get_note(note_id: int) -> NoteResponse:
         note = session.get(Note, note_id)
         if not note:
             raise not_found_error("Note")
-
         return to_note_response(note)
 
 
@@ -169,8 +179,7 @@ def patch_note(note_id: int, payload: PatchNoteRequest) -> NoteResponse:
     with Session(engine) as session:
         note = session.get(Note, note_id)
         if not note:
-           raise not_found_error("Note")
-
+            raise not_found_error("Note")
 
         if payload.title is not None:
             note.title = payload.title
@@ -195,7 +204,7 @@ def delete_note(note_id: int) -> Response:
         session.commit()
         return Response(status_code=204)
 
+
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
-
