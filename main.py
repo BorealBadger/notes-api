@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -26,13 +27,14 @@ def not_found_error(entity: str = "Note") -> HTTPException:
     )
 
 
-DATABASE_URL = "sqlite:///notes.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///notes.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
 
 
+
 # ---------- Database ----------
-DATABASE_URL = "sqlite:///notes.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///notes.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
 
