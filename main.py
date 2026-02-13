@@ -1,24 +1,38 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
 from pydantic import BaseModel, field_validator
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 app = FastAPI(
     title="Notes API",
-    version="1.1.0",
-    description="Simple notes service with SQLite persistence, search, and health checks.",
+    version="1.2.0",
+    description=(
+        "Simple Notes API with SQLite persistence, search, pagination, "
+        "API-key protected write operations, and health checks."
+    ),
     contact={"name": "BorealBadger"},
     openapi_tags=[
         {"name": "health", "description": "Service health endpoints"},
-        {"name": "notes", "description": "CRUD and search operations for notes"},
+        {"name": "notes", "description": "Read and search notes"},
+        {"name": "notes-write", "description": "Create/update/delete note operations"},
     ],
 )
 
+# ---------- Security ----------
+API_KEY = os.getenv("NOTES_API_KEY", "dev-secret-key")
 
+
+def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+# ---------- Errors ----------
 def not_found_error(entity: str = "Note") -> HTTPException:
     return HTTPException(
         status_code=404,
@@ -26,13 +40,8 @@ def not_found_error(entity: str = "Note") -> HTTPException:
     )
 
 
-DATABASE_URL = "sqlite:///notes.db"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-
-
-
 # ---------- Database ----------
-DATABASE_URL = "sqlite:///notes.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///notes.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
 
@@ -62,6 +71,15 @@ class CreateNoteRequest(BaseModel):
     title: str
     content: str = ""
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "title": "Buy milk",
+                "content": "2 liters, low fat",
+            }
+        }
+    }
+
     @field_validator("title")
     @classmethod
     def validate_title(cls, v: str) -> str:
@@ -73,6 +91,15 @@ class CreateNoteRequest(BaseModel):
 class PatchNoteRequest(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "title": "Buy milk and eggs",
+                "content": "2 liters + 12 eggs",
+            }
+        }
+    }
 
     @field_validator("title")
     @classmethod
@@ -109,10 +136,28 @@ def to_note_response(note: Note) -> NoteResponse:
 
 
 # ---------- Routes ----------
-@app.post("/notes", response_model=NoteResponse, status_code=201)
+@app.post(
+    "/notes",
+    response_model=NoteResponse,
+    status_code=201,
+    dependencies=[Depends(require_api_key)],
+    tags=["notes-write"],
+    summary="Create a note",
+    description="Create a new note. Requires X-API-Key header.",
+    responses={
+        201: {"description": "Note created"},
+        401: {"description": "Unauthorized"},
+        422: {"description": "Validation error"},
+    },
+)
 def create_note(payload: CreateNoteRequest) -> NoteResponse:
     now = utc_now_iso()
-    note = Note(title=payload.title, content=payload.content, created_at=now, updated_at=now)
+    note = Note(
+        title=payload.title,
+        content=payload.content,
+        created_at=now,
+        updated_at=now,
+    )
     with Session(engine) as session:
         session.add(note)
         session.commit()
@@ -120,7 +165,13 @@ def create_note(payload: CreateNoteRequest) -> NoteResponse:
         return to_note_response(note)
 
 
-@app.get("/notes", response_model=PaginatedNotesResponse)
+@app.get(
+    "/notes",
+    response_model=PaginatedNotesResponse,
+    tags=["notes"],
+    summary="List notes",
+    description="List notes with pagination using limit and offset.",
+)
 def list_notes(
     limit: int = Query(default=10, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -139,36 +190,55 @@ def list_notes(
 
 
 # IMPORTANT: keep /notes/search BEFORE /notes/{note_id}
-@app.get("/notes/search", response_model=list[NoteResponse])
+@app.get(
+    "/notes/search",
+    response_model=list[NoteResponse],
+    tags=["notes"],
+    summary="Search notes",
+    description="Case-insensitive search in note title and content.",
+)
 def search_notes(q: str = Query(..., min_length=1)) -> list[NoteResponse]:
     q_lower = q.lower()
     with Session(engine) as session:
         notes = session.exec(select(Note)).all()
-        filtered = [
-            n
-            for n in notes
-            if q_lower in n.title.lower() or q_lower in n.content.lower()
-        ]
+        filtered = [n for n in notes if q_lower in n.title.lower() or q_lower in n.content.lower()]
         return [to_note_response(n) for n in filtered]
 
 
-@app.get("/notes/{note_id}", response_model=NoteResponse)
+@app.get(
+    "/notes/{note_id}",
+    response_model=NoteResponse,
+    tags=["notes"],
+    summary="Get note by ID",
+    responses={404: {"description": "Note not found"}},
+)
 def get_note(note_id: int) -> NoteResponse:
     with Session(engine) as session:
         note = session.get(Note, note_id)
         if not note:
             raise not_found_error("Note")
-
         return to_note_response(note)
 
 
-@app.patch("/notes/{note_id}", response_model=NoteResponse)
+@app.patch(
+    "/notes/{note_id}",
+    response_model=NoteResponse,
+    dependencies=[Depends(require_api_key)],
+    tags=["notes-write"],
+    summary="Patch note",
+    description="Partial update of note fields. Requires X-API-Key header.",
+    responses={
+        200: {"description": "Note updated"},
+        401: {"description": "Unauthorized"},
+        404: {"description": "Note not found"},
+        422: {"description": "Validation error"},
+    },
+)
 def patch_note(note_id: int, payload: PatchNoteRequest) -> NoteResponse:
     with Session(engine) as session:
         note = session.get(Note, note_id)
         if not note:
-           raise not_found_error("Note")
-
+            raise not_found_error("Note")
 
         if payload.title is not None:
             note.title = payload.title
@@ -182,7 +252,20 @@ def patch_note(note_id: int, payload: PatchNoteRequest) -> NoteResponse:
         return to_note_response(note)
 
 
-@app.delete("/notes/{note_id}", status_code=204, response_class=Response)
+@app.delete(
+    "/notes/{note_id}",
+    status_code=204,
+    response_class=Response,
+    dependencies=[Depends(require_api_key)],
+    tags=["notes-write"],
+    summary="Delete note",
+    description="Delete note by ID. Requires X-API-Key header.",
+    responses={
+        204: {"description": "Note deleted"},
+        401: {"description": "Unauthorized"},
+        404: {"description": "Note not found"},
+    },
+)
 def delete_note(note_id: int) -> Response:
     with Session(engine) as session:
         note = session.get(Note, note_id)
@@ -193,7 +276,12 @@ def delete_note(note_id: int) -> Response:
         session.commit()
         return Response(status_code=204)
 
-@app.get("/healthz")
+
+@app.get(
+    "/healthz",
+    tags=["health"],
+    summary="Health check",
+    description="Simple liveness endpoint.",
+)
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
-
